@@ -9,11 +9,33 @@ To ensure universal legacy identity resolution without a hard requirement for a 
 - **[2] Provider**: The source. Used values: `nostr`, `discord`, `email`, `x`.
 
 ## Kind 5520: Native Zap Request
+
+```json
+{
+  "kind": 5520,
+  "content": "Here is 1000 loki! Great post.",
+  "tags": [
+    ["e", "<optional_target_event_id>"],
+    ["a", "<optional_kind:pubkey:d_tag>"],
+    ["k", "<optional_target_event_kind>"],
+    ["p", "<recipient_pubkey_or_ConnectionKey>", "<optional_lidp_name>"],
+    ["amount", "1000000"],
+    ["chain", "flokicoin"],
+    ["lnurl", "lnurl1..."],
+    ["relays", "wss://relay.ohstr.com", "wss://relay.primal.net"]
+  ],
+  "pubkey": "<sender_pubkey>",
+  "created_at": "<unix_timestamp>",
+  "id": "...",
+  "sig": "..."
+}
+```
+
 Used by native Nostr users to zap another user or LNURL destination.
 * **Initiator:** Signed by Sender's Private Key.
 * **Mechanism:** LNURL-Pay.
 * **Required Tags:**
-    * `p`: Recipient identity (e.g., `["p", "<hex_or_ConnectionKey>", "<optional_lidp_name>"]`). If the 3rd parameter is omitted or empty, it defaults to `nostr` (pubkey).
+    * `p`: Recipient identity (e.g., `["p", "<recipient_pubkey_or_ConnectionKey>", "<optional_lidp_name>"]`). If the 3rd parameter is omitted or empty, it defaults to `nostr` (pubkey).
     * `amount`: Total value in milli-units.
     * `lnurl`: Bech32 LNURL of the recipient.
     * `relays`: Target relays.
@@ -24,30 +46,78 @@ Used by native Nostr users to zap another user or LNURL destination.
     * `k`: Stringified kind of the target event.
 
 ## Kind 5523: On-Behalf Request (Proxy)
+
+```json
+{
+  "kind": 5523,
+  "content": "Sent via Proxy Application",
+  "tags": [
+    ["p", "<recipient_ConnectionKey>", "<lidp_name>"],
+    ["P", "<sender_ConnectionKey>", "<lidp_name>"],
+    ["amount", "100000"],
+    ["chain", "flokicoin"],
+    ["relays", "wss://relay.zapf.app", "wss://relay.damus.io"],
+    ["lnurl", "lnurl..."]
+  ],
+  "pubkey": "<bot_server_identity>",
+  "created_at": 1709424000,
+  "sig": "..."
+}
+```
+
 Used by bots (Proxy Agents) to represent users on legacy platforms.
 * **Initiator:** Signed by Proxy Agent's Key (e.g., Zapf Discord Bot).
 * **Mechanism:** LNURL-Pay.
 * **Required Tags:**
-    * `P`: True Sender identity (3-element format, e.g., `["P", "<ConnectionKey>", "<lidp_name>"]`).
-    * `p`: Recipient identity (3-element format).
+    * `P`: True Sender identity (3-element format, e.g., `["P", "<sender_ConnectionKey>", "<lidp_name>"]`).
+    * `p`: Recipient identity (3-element format, e.g., `["p", "<recipient_ConnectionKey>", "<lidp_name>"]`).
     * `amount`: Value in milli-units.
     * `lnurl`: Recipient LNURL endpoint.
     * `chain`: Network context.
+    * `relays`: Target relays for receipt publishing.
 
 **Validation / Identity Resolution (via Kind 35521):**
 When parsing a `5523` event (or its resultant `5521`), the ConnectionKey is the primary identifier. To display a "Verified" UI experience, clients MUST query for a **Kind 35521 (Identity Connection)** where the `#d` tag matches the ConnectionKey. If no 35521 exists, display the fallback LIDP identity (e.g., Provider Avatar).
 
 ## Kind 5521: Universal Zap Receipt
+
+```json
+{
+  "kind": 5521,
+  "content": "",
+  "tags": [
+    ["e", "<optional_target_event_id>"],
+    ["a", "<optional_kind:pubkey:d_tag>"],
+    ["p", "<recipient_hex_or_ConnectionKey>", "<lidp_name>", "<handle>"],
+    ["P", "<sender_hex_or_ConnectionKey>", "<lidp_name>", "<handle>"],
+    ["r", "<resolved_recipient_nostr_pubkey>"],
+    ["R", "<resolved_sender_nostr_pubkey>"],
+    ["amount", "<payment_amount_milli_units>"],
+    ["chain", "flokicoin"],
+    ["bolt11", "lnfc10u1..."],
+    ["description", "<json_string_of_zap_request_optional>"],
+    ["preimage", "<32_byte_hex_string>"]
+  ],
+  "pubkey": "<provider_pubkey>",
+  "created_at": "<unix_timestamp>",
+  "id": "...",
+  "sig": "..."
+}
+```
+
 The final proof of settlement issued by the ZSP.
 * **Initiator:** Signed by ZSP's Private Key.
 * **Required Tags:**
-    * `p`: Mirror Recipient. (Exception: Appended POST-settlement in 5522 if resolved via claim link).
-    * `P`: Mirror Sender.
+    * `p`: Mirror Recipient. The optional 4th element is the stable provider handle. May be appended post-settlement for Direct Payments.
+    * `P`: Mirror Sender. The optional 4th element is the stable provider handle. This structure supports proxy/anonymous routing.
     * `amount`: Settled milli-units extracted from the BOLT11.
-    * `preimage`: Cryptographic proof (32-byte hex).
-    * `description`: Stringified JSON of the Request event (5520/5523).
     * `chain`: Settled network.
+    * `bolt11`: The exact Lightning invoice that was paid.
+    * `description`: Stringified JSON of the Request event (5520/5523).
+    * `preimage`: Cryptographic proof (32-byte hex).
 * **Optional Tags:**
+    * `e`: Used if the Zap is in response to a specific Nostr event (copied from request).
+    * `a`: Used if the Zap is in response to a parameterized replaceable event (copied from request).
     * `r`: Resolved Recipient (Used to map a `p` ConnectionKey back to a native pubkey if the ZSP knows the 35521 connection).
     * `R`: Resolved Sender (Used to map a `P` ConnectionKey back to a native pubkey if the ZSP knows the 35521 connection). Enables "Social Bridge" UX.
 
@@ -64,11 +134,27 @@ When generating a 5521 Zap Receipt, use this matrix to correctly populate identi
 
 ## Kind 35521: Identity Connection (User-Signed)
 
+```json
+{
+  "kind": 35521,
+  "pubkey": "<user_pubkey>",
+  "created_at": "<unix_timestamp>",
+  "tags": [
+    ["d", "<connection_key>"],
+    ["e", "<attestation_event_id>", "<ia_relay_url>"],
+    ["lidp", "<lidp_name>"]
+  ],
+  "content": "<public_profile_json>",
+  "id": "...",
+  "sig": "..."
+}
+```
+
 The user's public declaration that they own a LIDP account. A parameterized replaceable event (30000–39999): keyed by `pubkey + d-tag`.
 
 - `d` tag: bare ConnectionKey — **NEVER** prefixed with `lidp:`. Including a prefix breaks `#d` relay queries from third-party clients.
 - `lidp` tag: provider name (e.g., `"discord"`, `"github"`)
-- `e` tag: `["e", attestationEventId, iaRelayUrl]` — 3-element reference to Kind 35522. Consumers must fetch the full event from the IA relay to verify. **Never embed the attestation JSON.**
+- `e` tag: `["e", "<attestation_event_id>", "<ia_relay_url>"]` — 3-element reference to Kind 35522. Consumers must fetch the full event from the IA relay to verify. **Never embed the attestation JSON.**
 - `expiration` tag: optional — mirrored from the Kind 35522 expiration (NIP-40) so relays can auto-prune expired events.
 - `content`: always cleartext JSON — `display_name`, `picture`, `user_id`, `username`. Empty (`""`) if no profile data.
 - Multiple `e` tags allowed — one per IA attesting the same connection (multi-IA stacking)
@@ -77,15 +163,49 @@ When querying relays: use `#d` filter with the bare ConnectionKey. Use `#lidp` t
 
 ## Kind 35522: IA Attestation (IA-Signed)
 
+```json
+{
+  "kind": 35522,
+  "content": "",
+  "tags": [
+    ["d", "<connection_key>"],
+    ["p", "<user_pubkey>"],
+    ["lidp", "<lidp_name>"],
+    ["evidence", "<verification_payload>"],
+    ["expiration", "<unix_timestamp>"]
+  ],
+  "pubkey": "<ia_pubkey>",
+  "created_at": "<unix_timestamp>",
+  "id": "...",
+  "sig": "..."
+}
+```
+
 The Identity Authority's cryptographic proof that a user owns a LIDP account.
 
 - `d` tag: bare ConnectionKey (same as Kind 35521 `d` tag)
 - `p` tag: user's Nostr pubkey — **frontend MUST verify `p == outerKind35521.pubkey`** to prevent embedding attacks
 - `lidp` tag: provider name
-- `evidence` tag: cleartext v1 JSON string — see `identity-connection.md` Section B. Readable by anyone; enables cross-IA re-verification.
+- `evidence` tag: `["evidence", "<verification_payload>"]` — cleartext v1 JSON string. Readable by anyone; enables cross-IA re-verification.
 - `expiration` tag: NIP-40 unix timestamp — default 90 days, configurable via `IA_ATTESTATION_EXPIRY_DAYS`
 - Content: `""` (empty)
 - Signed by IA private key. Always call `verifyEvent(event)` before trusting.
+
+### Evidence JSON Schema
+A complete v1 evidence payload looks like this:
+```json
+{
+  "version": 1,
+  "lidp": "discord",
+  "auth_type": "public_post",
+  "user_id": "1254093577051574374",
+  "username": "joyosar",
+  "verified_at": 1779219590,
+  "evidence_url": "https://discord.com/channels/.../1506380827804831834",
+  "challenge": "npv11qqsykd7ufyvfjl9qasdgtrz02jsv97l9atdnqc0vz8wsytxqxn9v6pqzvtph4",
+  "pre_auth_code": "feb7dee63337"
+}
+```
 
 ## Kind 5: Attestation Revocation (NIP-09)
 
