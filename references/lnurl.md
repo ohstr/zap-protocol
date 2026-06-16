@@ -35,7 +35,7 @@ Zapf extends the standard LUD-16 metadata array to support multi-chain parameter
 ]
 ```
 
-*Note on Proxy Endpoints: Currently, the proxy LNURL metadata (`/.well-known/lnurlp/proxyUsername`) might omit the chain tag. Frontend clients must safely default to `chain/flokicoin` in their signed Zap Requests.*
+*Note on Proxy Endpoints: If no chain tags are present in the LNURL metadata (`/.well-known/lnurlp/proxyUsername`), clients default to `chain/flokicoin`.*
 
 ## 3. The Callback & Cryptographic Verification
 
